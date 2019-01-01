@@ -104,6 +104,7 @@ void serialVFD_load_IEE_96 (Driver *drvthis);
 void serialVFD_load_Futaba_NA202SD08FA(Driver *drvthis);
 void serialVFD_load_Samsung (Driver *drvthis);
 void serialVFD_load_Nixdorf_BA6x (Driver *drvthis);
+void serialVFD_load_IEE_122 (Driver *drvthis);
 
 /**
  * Load display specific settings.
@@ -140,6 +141,9 @@ int serialVFD_load_display_data(Driver *drvthis)
 			break;
 		case 8:
 			serialVFD_load_Nixdorf_BA6x(drvthis);
+			break;
+		case 9:
+			serialVFD_load_IEE_122(drvthis);
 			break;
 		default:
 			return -1;
@@ -554,6 +558,100 @@ serialVFD_load_IEE_95B (Driver *drvthis)
 		p->usr_chr_load_mapping[tmp] = usr_chr_load_mapping[tmp];
 
 }
+
+
+
+/* Init data for IEE_03602-122_2x20_VFD */
+void
+serialVFD_load_IEE_122 (Driver *drvthis)
+{
+	PrivateData *p = (PrivateData*) drvthis->private_data;
+	int tmp, w;
+
+	if (p->customchars == CC_UNSET)
+		p->customchars = 3;
+	p->vbar_cc_offset = 0;
+	p->hbar_cc_offset = 0;
+	p->predefined_hbar = 0;
+	p->predefined_vbar = 0;
+	p->para_wait = 60;	// the display needs more delay in the parallelport mode
+
+	/*-
+	 * hardwarespecific commands:
+	 *   hw_cmd[Command][data] =	{{commandlength , command 1},
+	 *				.....
+	 *				 {commandlength , command N}};
+	 */
+	const char hw_cmd[10][4] = {{1	,0x1C},  // dark
+				{1      ,0x1D},
+				{1	,0x1E},
+				{1	,0x1F},  // bright
+				{1	,0x16},	// pos1
+				{0	},	// move cursor (set to 0 if not supported)
+				{1	,0x15},	// reset
+				{2	,0x0E, 0x11},  	// init
+				{1	,0x18}, 	// set user char
+				{1	,0x09}}; 	// tab
+	for (tmp = 0; tmp < 10; tmp++)
+		for (w = 0; w < 4; w++)
+			p->hw_cmd[tmp][w] = hw_cmd[tmp][w];
+
+	/* Translates ISO 8859-1 to display charset. */
+	const unsigned char charmap[] = {
+		0xEF,		/* the "filled-block"-character usually 127 */
+		/* #128  = 0x80 */
+		0x7F, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+		0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+		0xE8, 0xE9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+		152, 153, 154, 155, 156, 157, 158, 159,
+		/* #160 = 0xA0 */
+		160,   '!', 0xD3,  '?',  '?', 0x5C, 0x7C,  '?',
+		'"',   '?',  '?',  '?',  '?',  '-',  '?',  '?',
+		0xB9, 0xBA,  '?',  '?', 0x27,  '?',  '?',  '.',
+		',',   '?',  '?',  '?',  '?',  '?',  '?',  '?',
+		/* #192 = 0xC0 */
+		0xB2, 0xA2, 0xA4,  'A', 0xA0, 0xA1, 0xA5, 0xA3,
+		0xA7, 0xA6, 0xA8, 0xB4, 0xAB, 0xAA, 0xAC, 0xA9,
+		'D',  0xAE, 0xB1, 0xB0, 0xBF,  'O', 0xAD,  'x',
+		0xAF, 0xB7, 0xB6, 0xB8, 0xB5,  'Y',  'p', 0xB3,
+		/* #224 = 0xE0 */
+		0xD2, 0xC2, 0xC4,  'a', 0xC0, 0xC1, 0xC5, 0xC3,
+		0xC7, 0xC6, 0xC8, 0xD4, 0xCB, 0xCA, 0xCC, 0xC9,
+		'o',  0xCE, 0xD1, 0xD0, 0xDF,  'o', 0xAD, 0xBB,
+		0xCF, 0xD7, 0xD6, 0xD8, 0xD5,  'y',  'p',  'y' };
+	for (tmp = 0; tmp < 129; tmp++)
+		p->charmap[tmp] = charmap[tmp];
+
+
+	// {bytes to send, icon bit mapped to bit 0, icon bit mapped to bit 1, ...}
+	const int usr_chr_dot_assignment[57] = { 6,
+						 0, 7, 0,26, 0, 8,17, 0,
+						 0, 9,18,28, 0,10,19, 0,
+						 1,11,20,30, 2,12,21, 0,
+						 3,13,22,32, 4,14,23, 0,
+						 5,15,24,34, 6,16,25, 0,
+						27,29,31,33,35, 0, 0, 0 };
+	for (tmp = 0; tmp < 57; tmp++)
+		p->usr_chr_dot_assignment[tmp] = usr_chr_dot_assignment[tmp];
+
+	// Where to place the usercharacters (0..30) in the asciicode.
+	// Also used to map standardcharacters in the usercharacterspace(0..30)
+	// (useful for displays with less then 30 usercharacters and predefined bars)
+	const unsigned int usr_chr_mapping[31]=
+	{0xFF, 0xFE, 0xFD};
+	for (tmp = 0; tmp < 31; tmp++)
+		p->usr_chr_mapping[tmp] = usr_chr_mapping[tmp];
+
+	// The following is only needet to set if the display needs a different setting
+	// for loading the usercharacters.
+	// Example: The character loaded to 0x00 will be shown at 0xFD.
+	// usr_chr_load_mapping[0] or usr_chr_load_mapping[1] has to be != 0
+	const unsigned int usr_chr_load_mapping[31]=
+	{ 0x02, 0x01, 0x00};
+	for (tmp = 0; tmp < 31; tmp++)
+		p->usr_chr_load_mapping[tmp] = usr_chr_load_mapping[tmp];
+}
+
 
 
 /* Init data for IEE_03601-96_2x40_VFD */
